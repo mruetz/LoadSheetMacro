@@ -2,12 +2,104 @@ Attribute VB_Name = "Module3"
 
 Public bothSideThreshold As Integer
 
-
-
+Public FIT_FACTOR As Integer ' The col with greatest stack (stack=0 if impossible)
+        ' with existing partial behind + (this many) point PER LAYER of full stack
+        
+Public MIN_BW_FACTOR As Integer ' The col with a BW at the end LOSES points = (this)*5-(layers in partial)
+        ' if a stack with this partial is impossible
+     
+Public EVEN_FACTOR As Integer ' The col that is the shortest + (this many) point for every space
+        ' it is shorter by
+        
 Sub AutoBuild()
 
+    Application.DisplayAlerts = False
     Worksheets("26 Pallets").Activate
 
+    If Not rangeIsEmpty("X5", "X7") Then
+
+        If Not IsEmpty(Range("X5")) And IsNumeric(Range("X5").Value) Then
+            FIT_FACTOR = CInt(Range("X5").Value)
+            MsgBox ("FIT: " & FIT_FACTOR)
+        Else
+            FIT_FACTOR = 1
+        End If
+        
+        If Not IsEmpty(Range("X6")) And IsNumeric(Range("X6").Value) Then
+            MIN_BW_FACTOR = CInt(Range("X6").Value)
+            MsgBox ("MIN_BW: " & MIN_BW_FACTOR)
+        Else
+            MIN_BW_FACTOR = 1
+        End If
+        
+        If Not IsEmpty(Range("X7")) And IsNumeric(Range("X7").Value) Then
+            EVEN_FACTOR = CInt(Range("X7").Value)
+            MsgBox ("EVEN: " & EVEN_FACTOR)
+        Else
+            EVEN_FACTOR = 1
+        End If
+        
+        success = AutoBuildSheet(FIT_FACTOR, MIN_BW_FACTOR, EVEN_FACTOR)
+    
+    Else
+        MsgBox ("RUNNING 3 DIFFERENT FACTOR SETS!")
+        
+        cleared = clearTrailer()
+        If cleared Then
+            ' Reccursively call AutoBuild with the first set of factors
+            success = AutoBuildSheet(1, 3, 5)
+            ' Save this file (CHANGE FOLDER AS NEEDED) and call again with
+            MsgBox ("FIRST TRIAL FINISHED!!!")
+            
+             ActiveWorkbook.SaveAs "LoadSheet_" & Range("H5").Value & "(T1).xlsm"
+            ' Use the clearTrailer to empty the cells for the next trial
+            cleared = clearTrailer()
+        Else
+            MsgBox ("ERROR: ISSUE CLEARING TRAILER FOR 1st TRIAL!!")
+        End If
+        
+        If cleared Then
+            ' Repeat this process for trials 2 and 3
+            success = AutoBuildSheet(5, 1, 3)
+            ActiveWorkbook.SaveAs "LoadSheet_" & Range("H5").Value & "(T2).xlsm"
+            cleared = clearTrailer()
+        Else
+            MsgBox ("ERROR: ISSUE CLEARING TRAILER FOR 2nd TRIAL!!")
+        End If
+        
+        If cleared Then
+            success = AutoBuildSheet(3, 5, 1)
+            ActiveWorksheet.SaveAs "LoadSheet_" & Range("H5").Value & "(T3).xlsm"
+            cleared = clearTrailer()
+        Else
+            MsgBox ("ERROR: ISSUE CLEARING TRAILER FOR 3rd TRIAL!!")
+        End If
+        
+        
+        
+        If cleared Then
+            MsgBox ("All 3 versions were successfully built!")
+            ActiveWorksheet.SaveAs CurDir & Application.PathSeparator & "Load Sheet Auto.xlsm"
+            Application.Run "Module1.Clear"
+        End If
+            
+        
+    End If
+
+End Sub
+
+
+
+Function AutoBuildSheet(Optional cur_FIT_FACTOR As Integer, Optional cur_MIN_BW_FACTOR As Integer, Optional cur_EVEN_FACTOR As Integer)
+
+    FIT_FACTOR = cur_FIT_FACTOR
+    
+    MIN_BW_FACTOR = cur_MIN_BW_FACTOR
+    
+    EVEN_FACTOR = cur_EVEN_FACTOR
+
+    Worksheets("26 Pallets").Activate
+    
     ' This variable is the minumum number of layers for deliveries
     ' that will be distributed across BOTH columns
     ' (If the delivery has at least 6 full skids (6 skids * 7 layers/skid = 42 layers), it will be put in both cols)
@@ -26,6 +118,8 @@ Sub AutoBuild()
     Dim currentDropCell
     currentDropCell = "J" & CStr(currentDropRow)
     
+    Dim success
+    success = 0
     
     ' First, starting in Cell J6 (first drop) go down to the last item in the list
     Range(currentDropCell).Select
@@ -110,7 +204,7 @@ Sub AutoBuild()
             MsgBox ("THIS IS THE LAST DELIVERY TO BE PLACED")
             lastOne = True
             
-        ElseIf rangeIsEmpty("K7", nextNextLayerCountCell) = True Then
+        ElseIf rangeIsEmpty("K6", nextNextLayerCountCell) = True Then
             MsgBox ("SECOND LAST")
             secondLast = True
             
@@ -148,8 +242,10 @@ Sub AutoBuild()
         
         deliveriesPlaced = deliveriesPlaced + 1
     Wend
+    
+    AutoBuildSheet = success
         
-End Sub
+End Function
 
 
 
@@ -217,6 +313,8 @@ Function smartPlace(layers, curStoreNum, futurePartialLayers, lastOne, firstTwo,
         
         ' If a triple stack is possible with the delivery after this one, so use OFFSET placement
             ' Must add up to < 8 Layers, maximum num of different partials on a stack is 3
+        MsgBox ("TRIPLE??" & layersBehind & "  " & partialLayers & "  " & futurePartialLayers)
+            
         If layersBehind + partialLayers + futurePartialLayers < 8 And layersBehind > 0 And futurePartialLayers > 0 Then
             
             MsgBox ("VALID PARTIAL FOUND!")
@@ -372,15 +470,6 @@ End Function
 
 '   RET: Returns the cell ID of the cell where the first skid (partial OR full) can be placed
 Function chooseColumn(partialLayers, numFullSkids, firstTwo)
-        
-    FIT_FACTOR = 1 ' The col with greatest stack (stack=0 if impossible)
-        ' with existing partial behind + (this many) point PER LAYER of full stack
-        
-    EVEN_FACTOR = 3 ' The col that is the shortest + (this many) point for every space
-        ' it is shorter by
-        
-    MIN_BW_FACTOR = 10 ' The col with a BW at the end LOSES points = (this)*5-(layers in partial)
-        ' if a stack with this partial is impossible
     
     currentPlaceRow = 4
     currentPlaceCol = "B"
@@ -894,5 +983,18 @@ Function rangeIsEmpty(fromCell, toCell)
 End Function
 
 
+Function clearTrailer()
 
+    With ActiveSheet.Range("B4:C16")
+        .Font.Size = 16
+        .Value = ""
+    End With
+    
+    If rangeIsEmpty("B4", "C16") Then
+        clearTrailer = True
+    Else
+        clearTrailer = False
+    End If
+    
+End Function
 
